@@ -35,7 +35,7 @@ int main() {
 	ew::Transform monkeyTransform;
 
 	//Handles to OpenGL object are unsigned integers
-	GLuint brickTexture = ew::loadTexture("assets/PavingStones128_1K-PNG_Color.png");
+	GLuint brickTexture = ew::loadTexture("assets/PavingStones143_1K-JPG_Color.jpg");
 	//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
 
 	ew::CameraController cameraController;
@@ -72,6 +72,7 @@ int main() {
 
 		shader.use();
 		shader.setInt("_MainTex", 0);
+		shader.setVec3("_EyePos", camera.position);
 		// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
 		shader.setMat4("_Model", monkeyTransform.modelMatrix());
 		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
