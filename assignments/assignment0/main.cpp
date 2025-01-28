@@ -11,11 +11,13 @@
 #include <ew/shader.h>
 #include <ew/model.h>
 #include <ew/camera.h>
+#include <ew/cameraController.h>
 #include <ew/transform.h>
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 GLFWwindow* initWindow(const char* title, int width, int height);
-void drawUI();
+void drawUI(ew::Camera& camera, ew::CameraController& cameraController);
+void resetCamera(ew::Camera* camera, ew::CameraController* controller);
 
 //Global state
 int screenWidth = 1080;
@@ -30,6 +32,7 @@ int main() {
 	ew::Shader shader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
 	ew::Model monkeyModel = ew::Model("assets/suzanne.obj");
 	ew::Transform monkeyTransform;
+	ew::CameraController cameraController;
 
 	ew::Camera camera;
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
@@ -54,6 +57,8 @@ int main() {
 		glClearColor(0.6f,0.8f,0.92f,1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		cameraController.move(window, &camera, deltaTime); // cam control before using camera for anything
+
 		//Rotate model around Y axis
 		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
 
@@ -63,20 +68,22 @@ int main() {
 		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
 		monkeyModel.draw(); //Draws monkey model using current shader
 
-		drawUI();
+		drawUI(camera, cameraController);
 
 		glfwSwapBuffers(window);
 	}
 	printf("Shutting down...");
 }
 
-void drawUI() {
+void drawUI(ew::Camera& camera, ew::CameraController& cameraController) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui::NewFrame();
 
 	ImGui::Begin("Settings");
-	ImGui::Text("Add Controls Here!");
+
+	if(ImGui::Button("Reset Camera")) { resetCamera(&camera, &cameraController); }
+
 	ImGui::End();
 
 	ImGui::Render();
@@ -88,6 +95,12 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 	glViewport(0, 0, width, height);
 	screenWidth = width;
 	screenHeight = height;
+}
+
+void resetCamera(ew::Camera* camera, ew::CameraController* controller) {
+	camera->position = glm::vec3(0, 0, 5.0f);
+	camera->target = glm::vec3(0);
+	controller->yaw = controller->pitch = 0;
 }
 
 /// <summary>
@@ -124,4 +137,3 @@ GLFWwindow* initWindow(const char* title, int width, int height) {
 
 	return window;
 }
-
