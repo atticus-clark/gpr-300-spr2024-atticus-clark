@@ -17,14 +17,25 @@
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 GLFWwindow* initWindow(const char* title, int width, int height);
-void drawUI(ew::Camera& camera, ew::CameraController& cameraController);
+void drawUI();
 void resetCamera(ew::Camera* camera, ew::CameraController* controller);
+
+struct Material {
+	float Ka = 1.0;
+	float Kd = 0.5;
+	float Ks = 0.5;
+	float Shininess = 128;
+};
 
 //Global state
 int screenWidth = 1080;
 int screenHeight = 720;
 float prevFrameTime;
 float deltaTime;
+
+ew::Camera camera;
+ew::CameraController cameraController;
+Material material;
 
 int main() {
 	GLFWwindow* window = initWindow("Assignment 0", screenWidth, screenHeight);
@@ -38,8 +49,6 @@ int main() {
 	GLuint brickTexture = ew::loadTexture("assets/PavingStones143_1K-JPG_Color.jpg");
 	//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
 
-	ew::CameraController cameraController;
-	ew::Camera camera;
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
 	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); //Look at the center of the scene
 	camera.aspectRatio = (float)screenWidth / screenHeight;
@@ -51,17 +60,16 @@ int main() {
 
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
-
 		float time = (float)glfwGetTime();
 		deltaTime = time - prevFrameTime;
 		prevFrameTime = time;
 
-		//Bind brick texture to texture unit 0
-		glBindTextureUnit(0, brickTexture);
-
-		// update camera aspect ratio and move camera
+		// update camera (aspect ratio & position)
 		camera.aspectRatio = (float)screenWidth / screenHeight; // it's not inside framebufferSizeCallback, but it'll do
 		cameraController.move(window, &camera, deltaTime); // cam control before actually using camera for anything
+
+		//Bind brick texture to texture unit 0
+		glBindTextureUnit(0, brickTexture);
 
 		//Rotate model around Y axis
 		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
@@ -71,21 +79,27 @@ int main() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		shader.use();
+
 		shader.setInt("_MainTex", 0);
+		shader.setFloat("_Material.Ka", material.Ka);
+		shader.setFloat("_Material.Kd", material.Kd);
+		shader.setFloat("_Material.Ks", material.Ks);
+		shader.setFloat("_Material.Shininess", material.Shininess);
+
 		shader.setVec3("_EyePos", camera.position);
 		// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
 		shader.setMat4("_Model", monkeyTransform.modelMatrix());
 		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
-		monkeyModel.draw(); //Draws monkey model using current shader
 
-		drawUI(camera, cameraController);
+		monkeyModel.draw(); //Draws monkey model using current shader
+		drawUI();
 
 		glfwSwapBuffers(window);
 	}
 	printf("Shutting down...");
 }
 
-void drawUI(ew::Camera& camera, ew::CameraController& cameraController) {
+void drawUI() {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui::NewFrame();
@@ -93,6 +107,12 @@ void drawUI(ew::Camera& camera, ew::CameraController& cameraController) {
 	ImGui::Begin("Settings");
 
 	if(ImGui::Button("Reset Camera")) { resetCamera(&camera, &cameraController); }
+	if(ImGui::CollapsingHeader("Material")) {
+		ImGui::SliderFloat("AmbientK", &material.Ka, 0.0f, 1.0f);
+		ImGui::SliderFloat("DiffuseK", &material.Kd, 0.0f, 1.0f);
+		ImGui::SliderFloat("SpecularK", &material.Ks, 0.0f, 1.0f);
+		ImGui::SliderFloat("Shininess", &material.Shininess, 2.0f, 1024.0f);
+	}
 
 	ImGui::End();
 

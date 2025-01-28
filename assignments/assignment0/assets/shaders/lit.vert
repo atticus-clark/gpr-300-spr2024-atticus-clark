@@ -8,15 +8,13 @@ layout(location = 2) in vec2 vTexCoord; //Vertex texture coordinate (UV)
 uniform mat4 _Model; //Model->World Matrix
 uniform mat4 _ViewProjection; //Combined View->Projection Matrix
 
-out Surface
-{
+out Surface {
 	vec3 WorldPos; //Vertex position in world space
 	vec3 WorldNormal; //Vertex normal in world space
 	vec2 TexCoord;
 } vs_out;
 
-void main()
-{
+void main() {
 	//Transform vertex position to World Space.
 	vs_out.WorldPos = vec3(_Model * vec4(vPos,1.0));
 	//Transform vertex normal to world space using Normal Matrix
