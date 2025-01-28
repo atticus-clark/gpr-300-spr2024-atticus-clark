@@ -13,6 +13,7 @@
 #include <ew/camera.h>
 #include <ew/cameraController.h>
 #include <ew/transform.h>
+#include <ew/texture.h>
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 GLFWwindow* initWindow(const char* title, int width, int height);
@@ -32,8 +33,12 @@ int main() {
 	ew::Shader shader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
 	ew::Model monkeyModel = ew::Model("assets/suzanne.obj");
 	ew::Transform monkeyTransform;
-	ew::CameraController cameraController;
 
+	//Handles to OpenGL object are unsigned integers
+	GLuint brickTexture = ew::loadTexture("assets/PavingStones128_1K-PNG_Color.png");
+	//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
+
+	ew::CameraController cameraController;
 	ew::Camera camera;
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
 	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); //Look at the center of the scene
@@ -51,18 +56,22 @@ int main() {
 		deltaTime = time - prevFrameTime;
 		prevFrameTime = time;
 
+		//Bind brick texture to texture unit 0
+		glBindTextureUnit(0, brickTexture);
+
+		// update camera aspect ratio and move camera
 		camera.aspectRatio = (float)screenWidth / screenHeight; // it's not inside framebufferSizeCallback, but it'll do
+		cameraController.move(window, &camera, deltaTime); // cam control before actually using camera for anything
+
+		//Rotate model around Y axis
+		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
 
 		//RENDER
 		glClearColor(0.6f,0.8f,0.92f,1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		cameraController.move(window, &camera, deltaTime); // cam control before using camera for anything
-
-		//Rotate model around Y axis
-		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
-
 		shader.use();
+		shader.setInt("_MainTex", 0);
 		// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
 		shader.setMat4("_Model", monkeyTransform.modelMatrix());
 		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
