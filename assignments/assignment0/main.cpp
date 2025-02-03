@@ -243,7 +243,7 @@ void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, u
 	// attach it to currently bound framebuffer object
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorbufferTexture, 0);
 
-	// create renderbuffer for texture & stencil buffers
+	// create renderbuffer for depth & stencil buffers
 	glGenRenderbuffers(1, &rbo);
 	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, screenWidth, screenHeight);
