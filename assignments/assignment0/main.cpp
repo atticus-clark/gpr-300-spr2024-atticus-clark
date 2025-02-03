@@ -41,6 +41,10 @@ ew::Camera camera;
 ew::CameraController cameraController;
 Material material;
 
+// too lazy to figure out a proper solution for bools in ImGui
+int doInvert = 0;
+int doEdgeDetection = 0;
+
 int main() {
 	GLFWwindow* window = initWindow("Assignment 1", screenWidth, screenHeight);
 	glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
@@ -73,6 +77,44 @@ int main() {
 	unsigned int quadVAO, quadVBO;
 	constructQuad(quadVAO, quadVBO);
 
+	// offsets for convolution matrix
+	float offset = 1.0f / 300.0f;
+	float offsets[9][2] = {
+		{ -offset,  offset  },  // top-left
+		{  0.0f,    offset  },  // top-center
+		{  offset,  offset  },  // top-right
+		{ -offset,  0.0f    },  // center-left
+		{  0.0f,    0.0f    },  // center-center
+		{  offset,  0.0f    },  // center-right
+		{ -offset, -offset  },  // bottom-left
+		{  0.0f,   -offset  },  // bottom-center
+		{  offset, -offset  }   // bottom-right    
+	};
+
+	screenShader.use();
+	screenShader.setVec2("offset0", offsets[0][0], offsets[0][1]);
+	screenShader.setVec2("offset1", offsets[1][0], offsets[1][1]);
+	screenShader.setVec2("offset2", offsets[2][0], offsets[2][1]);
+	screenShader.setVec2("offset3", offsets[3][0], offsets[3][1]);
+	screenShader.setVec2("offset4", offsets[4][0], offsets[4][1]);
+	screenShader.setVec2("offset5", offsets[5][0], offsets[5][1]);
+	screenShader.setVec2("offset6", offsets[6][0], offsets[6][1]);
+	screenShader.setVec2("offset7", offsets[7][0], offsets[7][1]);
+	screenShader.setVec2("offset8", offsets[8][0], offsets[8][1]);
+
+	// kernel for edge detection effect
+	const float edgeKernel[9] = {1, 1, 1, 1, -8, 1, 1, 1, 1};
+
+	screenShader.setFloat("edgeKernel0", edgeKernel[0]);
+	screenShader.setFloat("edgeKernel1", edgeKernel[1]);
+	screenShader.setFloat("edgeKernel2", edgeKernel[2]);
+	screenShader.setFloat("edgeKernel3", edgeKernel[3]);
+	screenShader.setFloat("edgeKernel4", edgeKernel[4]);
+	screenShader.setFloat("edgeKernel5", edgeKernel[5]);
+	screenShader.setFloat("edgeKernel6", edgeKernel[6]);
+	screenShader.setFloat("edgeKernel7", edgeKernel[7]);
+	screenShader.setFloat("edgeKernel8", edgeKernel[8]);
+
 	// main render loop
 	while(!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
@@ -91,7 +133,7 @@ int main() {
 		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
 
 		// ---------- RENDER (with framebuffer) ---------- //
-		/* code is ADAPTED from the Framebuffers tutorial on LearnOpenGL
+		/* draws to a framebuffer, then applies post-processing effects
 		* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
 
 		// bind to framebuffer and draw scene as we normally would to color texture
@@ -133,6 +175,9 @@ int main() {
 		glBindTexture(GL_TEXTURE_2D, colorbufferTexture);	// use the color attachment texture as the texture of the quad plane
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 
+		screenShader.setInt("invert", doInvert);
+		screenShader.setInt("edgeDetection", doEdgeDetection);
+
 		drawUI(); // draws ImGui elements
 		glfwSwapBuffers(window);
 	}
@@ -156,6 +201,10 @@ void drawUI() {
 		ImGui::SliderFloat("SpecularK", &material.Ks, 0.0f, 1.0f);
 		ImGui::SliderFloat("Shininess", &material.Shininess, 2.0f, 1024.0f);
 	}
+	if(ImGui::CollapsingHeader("Post-Process Effects")) {
+		ImGui::SliderInt("Invert", &doInvert, 0, 1);
+		ImGui::SliderInt("Edge Detection", &doEdgeDetection, 0, 1);
+	}
 
 	ImGui::End();
 
@@ -176,7 +225,7 @@ void resetCamera(ew::Camera* camera, ew::CameraController* controller) {
 	controller->yaw = controller->pitch = 0;
 }
 
-/* code is sourced from the Framebuffers tutorial on LearnOpenGL
+/* creates and completes a framebuffer, including a depth and stencil buffer
 	* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
 void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, unsigned int& rbo) {
 	// create framebuffer
@@ -207,7 +256,7 @@ void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, u
 	glBindFramebuffer(GL_FRAMEBUFFER, 0); // rebind to default framebuffer
 }
 
-/* code is sourced from the Framebuffers tutorial on LearnOpenGL
+/* constructs a fullscreen quad for use with post-processing effects
 	* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
 void constructQuad(unsigned int& quadVAO, unsigned int& quadVBO) {
 	float quadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
