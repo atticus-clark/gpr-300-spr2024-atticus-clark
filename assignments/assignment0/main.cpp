@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include <stdio.h>
 #include <math.h>
 
@@ -19,6 +21,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 GLFWwindow* initWindow(const char* title, int width, int height);
 void drawUI();
 void resetCamera(ew::Camera* camera, ew::CameraController* controller);
+void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, unsigned int& rbo);
+void constructQuad(unsigned int& vao, unsigned int& vbo);
 
 struct Material {
 	float Ka = 1.0;
@@ -27,7 +31,7 @@ struct Material {
 	float Shininess = 128;
 };
 
-//Global state
+// Global state
 int screenWidth = 1080;
 int screenHeight = 720;
 float prevFrameTime;
@@ -38,27 +42,39 @@ ew::CameraController cameraController;
 Material material;
 
 int main() {
-	GLFWwindow* window = initWindow("Assignment 0", screenWidth, screenHeight);
+	GLFWwindow* window = initWindow("Assignment 1", screenWidth, screenHeight);
 	glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
 	ew::Shader shader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
+	ew::Shader screenShader = ew::Shader("assets/shaders/screen.vert", "assets/shaders/screen.frag");
+
 	ew::Model monkeyModel = ew::Model("assets/suzanne.obj");
 	ew::Transform monkeyTransform;
-
-	//Handles to OpenGL object are unsigned integers
+	// Handles to OpenGL object are unsigned integers
 	GLuint brickTexture = ew::loadTexture("assets/PavingStones143_1K-JPG_Color.jpg");
-	//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
 
+	// default camera values
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
-	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); //Look at the center of the scene
+	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); // Look at the center of the scene
 	camera.aspectRatio = (float)screenWidth / screenHeight;
-	camera.fov = 60.0f; //Vertical field of view, in degrees
+	camera.fov = 60.0f; // Vertical field of view, in degrees
 
 	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK); //Back face culling
-	glEnable(GL_DEPTH_TEST); //Depth testing
+	glCullFace(GL_BACK); // Back face culling
+	//glEnable(GL_DEPTH_TEST); // Depth testing
 
-	while (!glfwWindowShouldClose(window)) {
+	// construct and complete framebuffer
+	unsigned int fbo;
+	unsigned int colorbufferTexture;
+	unsigned int rbo;
+	constructFramebuffer(fbo, colorbufferTexture, rbo);
+
+	// set up quad vao and vbo
+	unsigned int quadVAO, quadVBO;
+	constructQuad(quadVAO, quadVBO);
+
+	// main render loop
+	while(!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		float time = (float)glfwGetTime();
 		deltaTime = time - prevFrameTime;
@@ -68,34 +84,61 @@ int main() {
 		camera.aspectRatio = (float)screenWidth / screenHeight; // it's not inside framebufferSizeCallback, but it'll do
 		cameraController.move(window, &camera, deltaTime); // cam control before actually using camera for anything
 
-		//Bind brick texture to texture unit 0
+		// Bind brick texture to texture unit 0
 		glBindTextureUnit(0, brickTexture);
 
-		//Rotate model around Y axis
+		// Rotate model around Y axis
 		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
 
-		//RENDER
-		glClearColor(0.6f,0.8f,0.92f,1.0f);
+		// ---------- RENDER (with framebuffer) ---------- //
+		/* code is ADAPTED from the Framebuffers tutorial on LearnOpenGL
+		* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
+
+		// bind to framebuffer and draw scene as we normally would to color texture
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+		glEnable(GL_DEPTH_TEST); // enable depth testing (is disabled for rendering screen-space quad)
+
+		// make sure we clear the framebuffer's content
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		// render as if you were rendering to default buffer
 		shader.use();
 
+		// material properties
 		shader.setInt("_MainTex", 0);
 		shader.setFloat("_Material.Ka", material.Ka);
 		shader.setFloat("_Material.Kd", material.Kd);
 		shader.setFloat("_Material.Ks", material.Ks);
 		shader.setFloat("_Material.Shininess", material.Shininess);
 
-		shader.setVec3("_EyePos", camera.position);
+		shader.setVec3("_EyePos", camera.position); // send camera position to shader
+
 		// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
 		shader.setMat4("_Model", monkeyTransform.modelMatrix());
 		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
 
-		monkeyModel.draw(); //Draws monkey model using current shader
-		drawUI();
+		monkeyModel.draw(); // Draws monkey model using current shader
 
+		// now bind back to default framebuffer and draw a quad plane with the attached framebuffer color texture
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glDisable(GL_DEPTH_TEST); // disable depth test so screen-space quad isn't discarded due to depth test.
+		// clear all relevant buffers
+		glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // clear quad color (technically not necessary)
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		// draw to screen quad
+		screenShader.use();
+		glBindVertexArray(quadVAO);
+		glBindTexture(GL_TEXTURE_2D, colorbufferTexture);	// use the color attachment texture as the texture of the quad plane
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		drawUI(); // draws ImGui elements
 		glfwSwapBuffers(window);
 	}
+
+	glDeleteFramebuffers(1, &fbo); // program ended, delete framebuffers
+
 	printf("Shutting down...");
 }
 
@@ -131,6 +174,62 @@ void resetCamera(ew::Camera* camera, ew::CameraController* controller) {
 	camera->position = glm::vec3(0, 0, 5.0f);
 	camera->target = glm::vec3(0);
 	controller->yaw = controller->pitch = 0;
+}
+
+/* code is sourced from the Framebuffers tutorial on LearnOpenGL
+	* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
+void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, unsigned int& rbo) {
+	// create framebuffer
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+	// generate texture for color buffer
+	glGenTextures(1, &colorbufferTexture);
+	glBindTexture(GL_TEXTURE_2D, colorbufferTexture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, screenWidth, screenHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	// attach it to currently bound framebuffer object
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorbufferTexture, 0);
+
+	// create renderbuffer for texture & stencil buffers
+	glGenRenderbuffers(1, &rbo);
+	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, screenWidth, screenHeight);
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+	// ensure that framebuffer is complete
+	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0); // rebind to default framebuffer
+}
+
+/* code is sourced from the Framebuffers tutorial on LearnOpenGL
+	* https://learnopengl.com/Advanced-OpenGL/Framebuffers */
+void constructQuad(unsigned int& quadVAO, unsigned int& quadVBO) {
+	float quadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+		// positions   // texCoords
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		-1.0f, -1.0f,  0.0f, 0.0f,
+		 1.0f, -1.0f,  1.0f, 0.0f,
+
+		-1.0f,  1.0f,  0.0f, 1.0f,
+		 1.0f, -1.0f,  1.0f, 0.0f,
+		 1.0f,  1.0f,  1.0f, 1.0f
+	};
+
+	glGenVertexArrays(1, &quadVAO);
+	glGenBuffers(1, &quadVBO);
+	glBindVertexArray(quadVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 }
 
 /// <summary>
