@@ -23,6 +23,7 @@ void drawUI();
 void resetCamera(ew::Camera* camera, ew::CameraController* controller);
 void constructFramebuffer(unsigned int& fbo, unsigned int& colorbufferTexture, unsigned int& rbo);
 void constructQuad(unsigned int& vao, unsigned int& vbo);
+void recalculateOffsets(ew::Shader& screenShader);
 
 struct Material {
 	float Ka = 1.0;
@@ -44,6 +45,8 @@ Material material;
 // too lazy to figure out a proper solution for bools in ImGui
 int doInvert = 0;
 int doEdgeDetection = 0;
+
+float invOffset = 300.0f;
 
 int main() {
 	GLFWwindow* window = initWindow("Assignment 1", screenWidth, screenHeight);
@@ -77,34 +80,10 @@ int main() {
 	unsigned int quadVAO, quadVBO;
 	constructQuad(quadVAO, quadVBO);
 
-	// offsets for convolution matrix
-	float offset = 1.0f / 300.0f;
-	float offsets[9][2] = {
-		{ -offset,  offset  },  // top-left
-		{  0.0f,    offset  },  // top-center
-		{  offset,  offset  },  // top-right
-		{ -offset,  0.0f    },  // center-left
-		{  0.0f,    0.0f    },  // center-center
-		{  offset,  0.0f    },  // center-right
-		{ -offset, -offset  },  // bottom-left
-		{  0.0f,   -offset  },  // bottom-center
-		{  offset, -offset  }   // bottom-right    
-	};
-
-	screenShader.use();
-	screenShader.setVec2("offset0", offsets[0][0], offsets[0][1]);
-	screenShader.setVec2("offset1", offsets[1][0], offsets[1][1]);
-	screenShader.setVec2("offset2", offsets[2][0], offsets[2][1]);
-	screenShader.setVec2("offset3", offsets[3][0], offsets[3][1]);
-	screenShader.setVec2("offset4", offsets[4][0], offsets[4][1]);
-	screenShader.setVec2("offset5", offsets[5][0], offsets[5][1]);
-	screenShader.setVec2("offset6", offsets[6][0], offsets[6][1]);
-	screenShader.setVec2("offset7", offsets[7][0], offsets[7][1]);
-	screenShader.setVec2("offset8", offsets[8][0], offsets[8][1]);
-
 	// kernel for edge detection effect
 	const float edgeKernel[9] = {1, 1, 1, 1, -8, 1, 1, 1, 1};
 
+	screenShader.use();
 	screenShader.setFloat("edgeKernel0", edgeKernel[0]);
 	screenShader.setFloat("edgeKernel1", edgeKernel[1]);
 	screenShader.setFloat("edgeKernel2", edgeKernel[2]);
@@ -177,6 +156,7 @@ int main() {
 
 		screenShader.setInt("invert", doInvert);
 		screenShader.setInt("edgeDetection", doEdgeDetection);
+		recalculateOffsets(screenShader);
 
 		drawUI(); // draws ImGui elements
 		glfwSwapBuffers(window);
@@ -204,6 +184,7 @@ void drawUI() {
 	if(ImGui::CollapsingHeader("Post-Process Effects")) {
 		ImGui::SliderInt("Invert", &doInvert, 0, 1);
 		ImGui::SliderInt("Edge Detection", &doEdgeDetection, 0, 1);
+		ImGui::SliderFloat("Inverse Offset", &invOffset, 100.0f, 1000.0f);
 	}
 
 	ImGui::End();
@@ -279,6 +260,34 @@ void constructQuad(unsigned int& quadVAO, unsigned int& quadVBO) {
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+}
+
+void recalculateOffsets(ew::Shader& screenShader) {
+	float offset = 1.0f / invOffset;
+
+	// offsets for convolution matrix
+	float offsets[9][2] = {
+		{ -offset, offset  },  // top-left
+		{  0.0f,   offset  },  // top-center
+		{  offset, offset  },  // top-right
+		{ -offset, 0.0f    },  // center-left
+		{  0.0f,   0.0f    },  // center-center
+		{  offset, 0.0f    },  // center-right
+		{ -offset, -offset },  // bottom-left
+		{  0.0f,   -offset },  // bottom-center
+		{  offset, -offset }   // bottom-right
+	};
+
+	screenShader.use();
+	screenShader.setVec2("offset0", offsets[0][0], offsets[0][1]);
+	screenShader.setVec2("offset1", offsets[1][0], offsets[1][1]);
+	screenShader.setVec2("offset2", offsets[2][0], offsets[2][1]);
+	screenShader.setVec2("offset3", offsets[3][0], offsets[3][1]);
+	screenShader.setVec2("offset4", offsets[4][0], offsets[4][1]);
+	screenShader.setVec2("offset5", offsets[5][0], offsets[5][1]);
+	screenShader.setVec2("offset6", offsets[6][0], offsets[6][1]);
+	screenShader.setVec2("offset7", offsets[7][0], offsets[7][1]);
+	screenShader.setVec2("offset8", offsets[8][0], offsets[8][1]);
 }
 
 /// <summary>
