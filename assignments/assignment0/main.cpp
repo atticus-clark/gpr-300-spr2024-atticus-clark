@@ -1,7 +1,7 @@
+#include <ew/external/glad.h>
+
 #include <stdio.h>
 #include <math.h>
-
-#include <ew/external/glad.h>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -15,10 +15,15 @@
 #include <ew/transform.h>
 #include <ew/texture.h>
 
-void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 GLFWwindow* initWindow(const char* title, int width, int height);
-void drawUI();
+void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 void resetCamera(ew::Camera* camera, ew::CameraController* controller);
+void drawUI();
+
+void setupPlane(unsigned int& planeVBO, unsigned int& planeVAO);
+void setupDepthMap(unsigned int& depthMapFBO, unsigned int& depthMap);
+void renderQuad();
+void renderScene(const ew::Shader& shader, ew::Model& monkeyModel);
 
 struct Material {
 	float Ka = 1.0;
@@ -27,38 +32,61 @@ struct Material {
 	float Shininess = 128;
 };
 
-//Global state
-int screenWidth = 1080;
-int screenHeight = 720;
-float prevFrameTime;
-float deltaTime;
+// Global state //
+int screenWidth = 1080, screenHeight = 720;
+float prevFrameTime, deltaTime;
 
 ew::Camera camera;
 ew::CameraController cameraController;
 Material material;
 
+const unsigned int SHADOW_WIDTH = 512, SHADOW_HEIGHT = 512;
+unsigned int planeVAO;
+ew::Transform monkeyTransform;
+
 int main() {
-	GLFWwindow* window = initWindow("Assignment 0", screenWidth, screenHeight);
+	GLFWwindow* window = initWindow("Assignment 2", screenWidth, screenHeight);
 	glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
-	ew::Shader shader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
-	ew::Model monkeyModel = ew::Model("assets/suzanne.obj");
-	ew::Transform monkeyTransform;
+	// OpenGL setup
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK); //Back face culling
+	glEnable(GL_DEPTH_TEST); //Depth testing
 
-	//Handles to OpenGL object are unsigned integers
-	GLuint brickTexture = ew::loadTexture("assets/PavingStones143_1K-JPG_Color.jpg");
-	//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
-
+	// camera setup
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
 	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); //Look at the center of the scene
 	camera.aspectRatio = (float)screenWidth / screenHeight;
 	camera.fov = 60.0f; //Vertical field of view, in degrees
 
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK); //Back face culling
-	glEnable(GL_DEPTH_TEST); //Depth testing
+	// shaders setup
+	ew::Shader mainShader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
+	ew::Shader simpleDepthShader = ew::Shader("assets/shaders/shadow.vert", "assets/shaders/shadow.frag");
+	ew::Shader debugDepthQuad = ew::Shader("assets/shaders/debugDepthQuad.vert", "assets/shaders/debugDepthQuad.frag");
 
-	while (!glfwWindowShouldClose(window)) {
+	mainShader.use();
+	mainShader.setInt("_DiffuseTexture", 0);
+	mainShader.setInt("_ShadowMap", 1);
+	debugDepthQuad.use();
+	debugDepthQuad.setInt("_DepthMap", 0);
+
+	// shadow map setup
+	unsigned int depthMapFBO, depthMap;
+	setupDepthMap(depthMapFBO, depthMap);
+
+	glm::vec3 lightPos(-2.0f, 4.0f, -1.0f);
+
+	// objects setup
+	unsigned int planeVBO;
+	setupPlane(planeVBO, planeVAO);
+
+	ew::Model monkeyModel = ew::Model("assets/suzanne.obj");
+	// Handles to OpenGL object are unsigned integers
+	GLuint monkeyTexture = ew::loadTexture("assets/PavingStones143_1K-JPG_Color.jpg");
+		//GLuint brickTexture = ew::loadTexture("assets/brick_color.jpg");
+
+	// render loop //
+	while(!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		float time = (float)glfwGetTime();
 		deltaTime = time - prevFrameTime;
@@ -68,35 +96,123 @@ int main() {
 		camera.aspectRatio = (float)screenWidth / screenHeight; // it's not inside framebufferSizeCallback, but it'll do
 		cameraController.move(window, &camera, deltaTime); // cam control before actually using camera for anything
 
-		//Bind brick texture to texture unit 0
-		glBindTextureUnit(0, brickTexture);
-
-		//Rotate model around Y axis
+		// Rotate model around Y axis
 		monkeyTransform.rotation = glm::rotate(monkeyTransform.rotation, deltaTime, glm::vec3(0.0, 1.0, 0.0));
 
-		//RENDER
-		glClearColor(0.6f,0.8f,0.92f,1.0f);
+		// Bind brick texture to texture unit 0
+		glBindTextureUnit(0, monkeyTexture);
+
+		// clear scene
+		glClearColor(0.6f, 0.8f, 0.92f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		shader.use();
+		// ----- 1) render depth of scene to texture (from light's perspective) ----- //
 
-		shader.setInt("_MainTex", 0);
-		shader.setFloat("_Material.Ka", material.Ka);
-		shader.setFloat("_Material.Kd", material.Kd);
-		shader.setFloat("_Material.Ks", material.Ks);
-		shader.setFloat("_Material.Shininess", material.Shininess);
+		/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+		* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
 
-		shader.setVec3("_EyePos", camera.position);
-		// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
-		shader.setMat4("_Model", monkeyTransform.modelMatrix());
-		shader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
+		glm::mat4 lightProjection, lightView;
+		glm::mat4 lightSpaceMatrix;
+		float near_plane = 1.0f, far_plane = 7.5f;
+		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
+		lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+		lightSpaceMatrix = lightProjection * lightView;
 
-		monkeyModel.draw(); //Draws monkey model using current shader
+		// render scene from light's point of view
+		simpleDepthShader.use();
+		simpleDepthShader.setMat4("_LightSpaceMatrix", lightSpaceMatrix);
+
+		glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+		glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, monkeyTexture);
+		renderScene(simpleDepthShader, monkeyModel);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		// reset viewport
+		glViewport(0, 0, screenWidth, screenHeight);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
+		// ----- 2) render scene as normal using the generated depth/shadow map ----- //
+		mainShader.use();
+		mainShader.setMat4("_ViewProjection", camera.projectionMatrix() * camera.viewMatrix());
+
+		// set light uniforms
+		mainShader.setVec3("_EyePos", camera.position);
+		mainShader.setVec3("_LightPos", lightPos);
+		mainShader.setMat4("_LightSpaceMatrix", lightSpaceMatrix);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, monkeyTexture);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, depthMap);
+		renderScene(mainShader, monkeyModel);
+
+		// render depth map to quad for visual debugging
+		debugDepthQuad.use();
+		debugDepthQuad.setFloat("_NearPlane", near_plane);
+		debugDepthQuad.setFloat("_FarPlane", far_plane);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, depthMap);
+		glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+		renderQuad();
+
 		drawUI();
 
 		glfwSwapBuffers(window);
 	}
-	printf("Shutting down...");
+
+	printf("\nShutting down...");
+	return 0;
+}
+
+// --------------- functions --------------- //
+
+/// <summary>
+/// Initializes GLFW, GLAD, and IMGUI
+/// </summary>
+/// <param name="title">Window title</param>
+/// <param name="width">Window width</param>
+/// <param name="height">Window height</param>
+/// <returns>Returns window handle on success or null on fail</returns>
+GLFWwindow* initWindow(const char* title, int width, int height) {
+	printf("Initializing...");
+	if(!glfwInit()) {
+		printf("GLFW failed to init!");
+		return nullptr;
+	}
+
+	GLFWwindow* window = glfwCreateWindow(width, height, title, NULL, NULL);
+	if(window == NULL) {
+		printf("GLFW failed to create window");
+		return nullptr;
+	}
+	glfwMakeContextCurrent(window);
+
+	if(!gladLoadGL(glfwGetProcAddress)) {
+		printf("GLAD Failed to load GL headers");
+		return nullptr;
+	}
+
+	//Initialize ImGUI
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init();
+
+	return window;
+}
+
+void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
+	glViewport(0, 0, width, height);
+	screenWidth = width;
+	screenHeight = height;
+}
+
+void resetCamera(ew::Camera* camera, ew::CameraController* controller) {
+	camera->position = glm::vec3(0, 0, 5.0f);
+	camera->target = glm::vec3(0);
+	controller->yaw = controller->pitch = 0;
 }
 
 void drawUI() {
@@ -120,50 +236,113 @@ void drawUI() {
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void framebufferSizeCallback(GLFWwindow* window, int width, int height)
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+void setupPlane(unsigned int& planeVBO, unsigned int& planeVAO) {
+	const float planeVertices[] = {
+		// positions            // normals         // texcoords
+		 10.0f, -1.0f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,
+		-10.0f, -1.0f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f,
+		-10.0f, -1.0f,  10.0f,  0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
+
+		 10.0f, -1.0f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,
+		 10.0f, -1.0f, -10.0f,  0.0f, 1.0f, 0.0f,  10.0f, 10.0f,
+		-10.0f, -1.0f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f
+	};
+
+	// plane VAO
+	glGenVertexArrays(1, &planeVAO);
+	glGenBuffers(1, &planeVBO);
+	glBindVertexArray(planeVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+	glBindVertexArray(0);
+}
+
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+void setupDepthMap(unsigned int& depthMapFBO, unsigned int& depthMap) {
+	glGenFramebuffers(1, &depthMapFBO);
+	glGenTextures(1, &depthMap);
+
+	glBindTexture(GL_TEXTURE_2D, depthMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
+		SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+// renderQuad() renders a 1x1 XY quad in NDC
+unsigned int quadVAO = 0;
+unsigned int quadVBO;
+void renderQuad()
 {
-	glViewport(0, 0, width, height);
-	screenWidth = width;
-	screenHeight = height;
+	if(quadVAO == 0)
+	{
+		const float quadVertices[] = {
+			// positions        // texture Coords
+			-1.0f, 0.25f, 0.0f, 0.0f, 1.0f,
+			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+			0.25f, 0.25f, 0.0f, 1.0f, 1.0f,
+			0.25f, -1.0f, 0.0f, 1.0f, 0.0f,
+		};
+
+		// setup plane VAO
+		glGenVertexArrays(1, &quadVAO);
+		glGenBuffers(1, &quadVBO);
+		glBindVertexArray(quadVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	}
+	glBindVertexArray(quadVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindVertexArray(0);
 }
 
-void resetCamera(ew::Camera* camera, ew::CameraController* controller) {
-	camera->position = glm::vec3(0, 0, 5.0f);
-	camera->target = glm::vec3(0);
-	controller->yaw = controller->pitch = 0;
-}
+void renderScene(const ew::Shader& shader, ew::Model& monkeyModel)
+{
+	// floor //
+	glm::mat4 model = glm::mat4(1.0f);
+	shader.setMat4("_Model", model);
 
-/// <summary>
-/// Initializes GLFW, GLAD, and IMGUI
-/// </summary>
-/// <param name="title">Window title</param>
-/// <param name="width">Window width</param>
-/// <param name="height">Window height</param>
-/// <returns>Returns window handle on success or null on fail</returns>
-GLFWwindow* initWindow(const char* title, int width, int height) {
-	printf("Initializing...");
-	if (!glfwInit()) {
-		printf("GLFW failed to init!");
-		return nullptr;
-	}
+	shader.setInt("_MainTex", 0);
+	shader.setFloat("_Material.Ka", material.Ka);
+	shader.setFloat("_Material.Kd", 0.5f);
+	shader.setFloat("_Material.Ks", 0.0f);
+	shader.setFloat("_Material.Shininess", 0.0f);
 
-	GLFWwindow* window = glfwCreateWindow(width, height, title, NULL, NULL);
-	if (window == NULL) {
-		printf("GLFW failed to create window");
-		return nullptr;
-	}
-	glfwMakeContextCurrent(window);
+	glBindVertexArray(planeVAO);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
 
-	if (!gladLoadGL(glfwGetProcAddress)) {
-		printf("GLAD Failed to load GL headers");
-		return nullptr;
-	}
+	// monkey //
+	// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
+	shader.setMat4("_Model", monkeyTransform.modelMatrix());
 
-	//Initialize ImGUI
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui_ImplGlfw_InitForOpenGL(window, true);
-	ImGui_ImplOpenGL3_Init();
+	shader.setInt("_MainTex", 0);
+	shader.setFloat("_Material.Ka", material.Ka);
+	shader.setFloat("_Material.Kd", material.Kd);
+	shader.setFloat("_Material.Ks", material.Ks);
+	shader.setFloat("_Material.Shininess", material.Shininess);
 
-	return window;
+	monkeyModel.draw();
 }
