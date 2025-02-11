@@ -51,22 +51,22 @@ void main() {
     vec3 normal = normalize(fs_in.WorldNormal);
 
     // ambient
-    vec3 ambient = 0.15 * _AmbientColor;
+    vec3 ambient = _Material.Ka * _AmbientColor;
 
     // diffuse
     vec3 lightDir = normalize(_LightPos - fs_in.WorldPos);
     float diff = max(dot(lightDir, normal), 0.0);
-    vec3 diffuse = diff * _LightColor;
+    vec3 diffuse = _Material.Kd * diff * _LightColor;
 
     // specular
     vec3 viewDir = normalize(_EyePos - fs_in.WorldPos);
     float spec = 0.0;
     vec3 halfwayDir = normalize(lightDir + viewDir);
-    spec = pow(max(dot(normal, halfwayDir), 0.0), 64.0);
-    vec3 specular = spec * _LightColor;
+    spec = pow(max(dot(normal, halfwayDir), 0.0), _Material.Shininess);
+    vec3 specular = _Material.Ks * spec * _LightColor;
 
     // calculate shadow
-    //float shadow = 0.0f; // enable this and disable line below to turn off shadows
+    //float shadow = 0.0f; // enable this and disable next line to turn off shadows
     float shadow = ShadowCalculation(fs_in.FragPosLightSpace);
     vec3 lighting = (ambient + (1.0 - shadow) * (diffuse + specular)) * color;
     
