@@ -40,9 +40,12 @@ ew::Camera camera;
 ew::CameraController cameraController;
 Material material;
 
-const unsigned int SHADOW_WIDTH = 512, SHADOW_HEIGHT = 512;
+const unsigned int SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
 unsigned int planeVAO;
 ew::Transform monkeyTransform;
+
+float lightPos[3] = { 1.0f, 5.0f, 1.0f };
+float maxBias = 0.05, minBias = 0.005;
 
 int main() {
 	GLFWwindow* window = initWindow("Assignment 2", screenWidth, screenHeight);
@@ -50,14 +53,14 @@ int main() {
 
 	// OpenGL setup
 	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK); //Back face culling
-	glEnable(GL_DEPTH_TEST); //Depth testing
+	glCullFace(GL_BACK); // Back face culling
+	glEnable(GL_DEPTH_TEST); // Depth testing
 
 	// camera setup
 	camera.position = glm::vec3(0.0f, 0.0f, 5.0f);
 	camera.target = glm::vec3(0.0f, 0.0f, 0.0f); //Look at the center of the scene
 	camera.aspectRatio = (float)screenWidth / screenHeight;
-	camera.fov = 60.0f; //Vertical field of view, in degrees
+	camera.fov = 60.0f; // Vertical field of view, in degrees
 
 	// shaders setup
 	ew::Shader mainShader = ew::Shader("assets/shaders/lit.vert", "assets/shaders/lit.frag");
@@ -73,8 +76,6 @@ int main() {
 	// shadow map setup
 	unsigned int depthMapFBO, depthMap;
 	setupDepthMap(depthMapFBO, depthMap);
-
-	glm::vec3 lightPos(-2.0f, 4.0f, -1.0f);
 
 	// objects setup
 	unsigned int planeVBO;
@@ -111,9 +112,9 @@ int main() {
 		/* code taken from the LearnOpenGL tutorial on Shadow Mapping
 		* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
 
-		glm::mat4 lightProjection, lightView;
-		glm::mat4 lightSpaceMatrix;
-		float near_plane = 1.0f, far_plane = 10.0f;
+		glm::vec3 lightPos(lightPos[0], lightPos[1], lightPos[2]);
+		glm::mat4 lightProjection, lightView, lightSpaceMatrix;
+		float near_plane = 1.0f, far_plane = 20.0f;
 		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
 		lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
 		lightSpaceMatrix = lightProjection * lightView;
@@ -127,7 +128,9 @@ int main() {
 		glClear(GL_DEPTH_BUFFER_BIT);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, monkeyTexture);
+		//glCullFace(GL_FRONT); // peter panning solution doesn't work for monkey model
 		renderScene(simpleDepthShader, monkeyModel);
+		//glCullFace(GL_BACK); // peter panning solution doesn't work for monkey model
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		// reset viewport
@@ -142,12 +145,16 @@ int main() {
 		mainShader.setVec3("_EyePos", camera.position);
 		mainShader.setVec3("_LightPos", lightPos);
 		mainShader.setMat4("_LightSpaceMatrix", lightSpaceMatrix);
+		mainShader.setFloat("_MaxBias", maxBias);
+		mainShader.setFloat("_MinBias", minBias);
+
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, monkeyTexture);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, depthMap);
 		renderScene(mainShader, monkeyModel);
 
+		/*
 		// render depth map to quad for visual debugging
 		debugDepthQuad.use();
 		debugDepthQuad.setFloat("_NearPlane", near_plane);
@@ -156,6 +163,7 @@ int main() {
 		glBindTexture(GL_TEXTURE_2D, depthMap);
 		glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
 		renderQuad();
+		*/
 
 		drawUI();
 
@@ -173,7 +181,7 @@ int main() {
 * https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
 void setupPlane(unsigned int& planeVBO, unsigned int& planeVAO) {
 	const float planeVertices[] = {
-		// positions            // normals         // texcoords
+		// positions          // normals         // texcoords
 		 5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 0.0f,
 		-5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 5.0f,
 		-5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f,
@@ -209,8 +217,10 @@ void setupDepthMap(unsigned int& depthMapFBO, unsigned int& depthMap) {
 		SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
@@ -340,6 +350,26 @@ void drawUI() {
 		ImGui::SliderFloat("SpecularK", &material.Ks, 0.0f, 1.0f);
 		ImGui::SliderFloat("Shininess", &material.Shininess, 2.0f, 1024.0f);
 	}
+	if(ImGui::CollapsingHeader("Directional Light")) {
+		ImGui::SliderFloat("Light Pos X", &lightPos[0], -5.0f, 5.0f);
+		ImGui::SliderFloat("Light Pos Y", &lightPos[1], 3.0f, 10.0f);
+		ImGui::SliderFloat("Light Pos Z", &lightPos[2], -5.0f, 5.0f);
+	}
+	if(ImGui::CollapsingHeader("Shadow")) {
+		ImGui::SliderFloat("Max Bias", &maxBias, 0.05, 0.2);
+		ImGui::SliderFloat("Min Bias", &minBias, 0.001, maxBias);
+	}
+
+	ImGui::Begin("Shadow Map");
+	//Using a Child allow to fill all the space of the window.
+	ImGui::BeginChild("Shadow Map");
+	//Stretch image to be window size
+	ImVec2 windowSize = ImGui::GetWindowSize();
+	//Invert 0-1 V to flip vertically for ImGui display
+	//shadowMap is the texture2D handle
+	ImGui::Image((ImTextureID)planeVAO, windowSize, ImVec2(0, 1), ImVec2(1, 0));
+	ImGui::EndChild();
+	ImGui::End();
 
 	ImGui::End();
 
