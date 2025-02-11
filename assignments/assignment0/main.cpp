@@ -162,11 +162,122 @@ int main() {
 		glfwSwapBuffers(window);
 	}
 
+	glfwTerminate();
 	printf("\nShutting down...");
 	return 0;
 }
 
-// --------------- functions --------------- //
+// --------------- assignment 2 functions --------------- //
+
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+void setupPlane(unsigned int& planeVBO, unsigned int& planeVAO) {
+	const float planeVertices[] = {
+		// positions            // normals         // texcoords
+		 5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 0.0f,
+		-5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 5.0f,
+		-5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f,
+
+		 5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 0.0f,
+		 5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 5.0f,
+		-5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 5.0f
+	};
+
+	// plane VAO
+	glGenVertexArrays(1, &planeVAO);
+	glGenBuffers(1, &planeVBO);
+	glBindVertexArray(planeVAO);
+	glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+	glBindVertexArray(0);
+}
+
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+void setupDepthMap(unsigned int& depthMapFBO, unsigned int& depthMap) {
+	glGenFramebuffers(1, &depthMapFBO);
+	glGenTextures(1, &depthMap);
+
+	glBindTexture(GL_TEXTURE_2D, depthMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
+		SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
+void renderQuad() { // renders a 1x1 XY quad in NDC
+	unsigned int quadVAO = 0, quadVBO;
+
+	if(quadVAO == 0)
+	{
+		const float quadVertices[] = {
+			// positions        // texture Coords
+			-1.0f, 0.25f, 0.0f, 0.0f, 1.0f,
+			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+			0.25f, 0.25f, 0.0f, 1.0f, 1.0f,
+			0.25f, -1.0f, 0.0f, 1.0f, 0.0f,
+		};
+
+		// setup plane VAO
+		glGenVertexArrays(1, &quadVAO);
+		glGenBuffers(1, &quadVBO);
+		glBindVertexArray(quadVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	}
+	glBindVertexArray(quadVAO);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindVertexArray(0);
+}
+
+void renderScene(const ew::Shader& shader, ew::Model& monkeyModel) {
+	// floor //
+	glm::mat4 model = glm::mat4(1.0f);
+	shader.setMat4("_Model", model);
+
+	shader.setInt("_MainTex", 0);
+	shader.setFloat("_Material.Ka", material.Ka);
+	shader.setFloat("_Material.Kd", 0.5f);
+	shader.setFloat("_Material.Ks", 0.0f);
+	shader.setFloat("_Material.Shininess", 0.0f);
+
+	glBindVertexArray(planeVAO);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	// monkey //
+	// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
+	shader.setMat4("_Model", monkeyTransform.modelMatrix());
+
+	shader.setInt("_MainTex", 0);
+	shader.setFloat("_Material.Ka", material.Ka);
+	shader.setFloat("_Material.Kd", material.Kd);
+	shader.setFloat("_Material.Ks", material.Ks);
+	shader.setFloat("_Material.Shininess", material.Shininess);
+
+	monkeyModel.draw();
+}
+
+// --------------- assignment 0 functions --------------- //
 
 /// <summary>
 /// Initializes GLFW, GLAD, and IMGUI
@@ -234,115 +345,4 @@ void drawUI() {
 
 	ImGui::Render();
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-}
-
-/* code taken from the LearnOpenGL tutorial on Shadow Mapping
-* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
-void setupPlane(unsigned int& planeVBO, unsigned int& planeVAO) {
-	const float planeVertices[] = {
-		// positions            // normals         // texcoords
-		 5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 0.0f,
-		-5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 5.0f,
-		-5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 0.0f,
-
-		 5.0f, -1.0f,  5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 0.0f,
-		 5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  5.0f, 5.0f,
-		-5.0f, -1.0f, -5.0f,  0.0f, 1.0f, 0.0f,  0.0f, 5.0f
-	};
-
-	// plane VAO
-	glGenVertexArrays(1, &planeVAO);
-	glGenBuffers(1, &planeVBO);
-	glBindVertexArray(planeVAO);
-	glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-	glBindVertexArray(0);
-}
-
-/* code taken from the LearnOpenGL tutorial on Shadow Mapping
-* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
-void setupDepthMap(unsigned int& depthMapFBO, unsigned int& depthMap) {
-	glGenFramebuffers(1, &depthMapFBO);
-	glGenTextures(1, &depthMap);
-
-	glBindTexture(GL_TEXTURE_2D, depthMap);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
-		SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
-	glDrawBuffer(GL_NONE);
-	glReadBuffer(GL_NONE);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-/* code taken from the LearnOpenGL tutorial on Shadow Mapping
-* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
-// renderQuad() renders a 1x1 XY quad in NDC
-unsigned int quadVAO = 0;
-unsigned int quadVBO;
-void renderQuad()
-{
-	if(quadVAO == 0)
-	{
-		const float quadVertices[] = {
-			// positions        // texture Coords
-			-1.0f, 0.25f, 0.0f, 0.0f, 1.0f,
-			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
-			0.25f, 0.25f, 0.0f, 1.0f, 1.0f,
-			0.25f, -1.0f, 0.0f, 1.0f, 0.0f,
-		};
-
-		// setup plane VAO
-		glGenVertexArrays(1, &quadVAO);
-		glGenBuffers(1, &quadVBO);
-		glBindVertexArray(quadVAO);
-		glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-	}
-	glBindVertexArray(quadVAO);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	glBindVertexArray(0);
-}
-
-void renderScene(const ew::Shader& shader, ew::Model& monkeyModel)
-{
-	// floor //
-	glm::mat4 model = glm::mat4(1.0f);
-	shader.setMat4("_Model", model);
-
-	shader.setInt("_MainTex", 0);
-	shader.setFloat("_Material.Ka", material.Ka);
-	shader.setFloat("_Material.Kd", 0.5f);
-	shader.setFloat("_Material.Ks", 0.0f);
-	shader.setFloat("_Material.Shininess", 0.0f);
-
-	glBindVertexArray(planeVAO);
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-
-	// monkey //
-	// transform.modelMatrix() combines translation, rotation, and scale into a 4x4 model matrix
-	shader.setMat4("_Model", monkeyTransform.modelMatrix());
-
-	shader.setInt("_MainTex", 0);
-	shader.setFloat("_Material.Ka", material.Ka);
-	shader.setFloat("_Material.Kd", material.Kd);
-	shader.setFloat("_Material.Ks", material.Ks);
-	shader.setFloat("_Material.Shininess", material.Shininess);
-
-	monkeyModel.draw();
 }

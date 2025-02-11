@@ -22,14 +22,13 @@ struct Material {
 };
 uniform Material _Material;
 
-/* code taken from the LearnOpenGL tutorial on Shadow Mapping
-* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
-
 uniform sampler2D _DiffuseTexture;
 uniform sampler2D _ShadowMap;
 
 uniform vec3 _LightPos;
 
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
 float ShadowCalculation(vec4 fragPosLightSpace)
 {
 	// perform perspective divide
@@ -46,6 +45,8 @@ float ShadowCalculation(vec4 fragPosLightSpace)
     return shadow;
 }
 
+/* code taken from the LearnOpenGL tutorial on Shadow Mapping
+* https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping */
 void main() {
 	vec3 color = texture(_DiffuseTexture, fs_in.TexCoord).rgb;
     vec3 normal = normalize(fs_in.WorldNormal);
