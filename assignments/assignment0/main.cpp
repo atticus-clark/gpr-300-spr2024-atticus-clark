@@ -45,6 +45,7 @@ unsigned int planeVAO;
 ew::Transform monkeyTransform;
 
 float lightPos[3] = { 1.0f, 5.0f, 1.0f };
+float lightColor[3] = { 1.0f, 1.0f, 1.0f };
 float maxBias = 0.05, minBias = 0.005;
 
 int main() {
@@ -143,6 +144,7 @@ int main() {
 
 		// set light uniforms
 		mainShader.setVec3("_EyePos", camera.position);
+		mainShader.setVec3("_LightColor", glm::vec3(lightColor[0], lightColor[1], lightColor[2]));
 		mainShader.setVec3("_LightPos", lightPos);
 		mainShader.setMat4("_LightSpaceMatrix", lightSpaceMatrix);
 		mainShader.setFloat("_MaxBias", maxBias);
@@ -351,6 +353,7 @@ void drawUI() {
 		ImGui::SliderFloat("Shininess", &material.Shininess, 2.0f, 1024.0f);
 	}
 	if(ImGui::CollapsingHeader("Directional Light")) {
+		ImGui::ColorEdit3("Color", lightColor);
 		ImGui::SliderFloat("Light Pos X", &lightPos[0], -5.0f, 5.0f);
 		ImGui::SliderFloat("Light Pos Y", &lightPos[1], 3.0f, 10.0f);
 		ImGui::SliderFloat("Light Pos Z", &lightPos[2], -5.0f, 5.0f);
