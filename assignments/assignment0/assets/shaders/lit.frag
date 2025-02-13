@@ -88,6 +88,7 @@ void main() {
     // calculate shadow
     //float shadow = 0.0f; // enable this and disable next line to turn off shadows
     float shadow = ShadowCalculation(fs_in.FragPosLightSpace, dot(normal, lightDir));
+
     vec3 lighting = (ambient + (1.0 - shadow) * (diffuse + specular)) * color;
     
     FragColor = vec4(lighting, 1.0);
